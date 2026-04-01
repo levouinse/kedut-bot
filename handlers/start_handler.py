@@ -29,7 +29,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(
         f"👋 Halo *{user.first_name}*!\n\n"
-        "Aku *Montrac* — bot pencatat pengeluaranmu. 🤖💰\n\n"
+        "Aku *Kedut* — bot pencatat pengeluaranmu. 🤖💰\n\n"
         "Langsung ketik pengeluaranmu, contoh:\n"
         "• `makan siang 35rb`\n"
         "• `bayar listrik 250000`\n"
@@ -42,7 +42,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "📖 *Cara Pakai Montrac*\n\n"
+        "📖 *Cara Pakai Kedut*\n\n"
         "*Catat pengeluaran:*\n"
         "Cukup ketik pengeluaranmu dalam bahasa natural:\n"
         "`makan siang warteg 15rb`\n"
