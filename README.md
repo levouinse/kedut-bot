@@ -1,17 +1,10 @@
-> [!WARNING]
-> **Repo ini sudah tidak aktif dikembangkan.**
-> Proyek ini telah berganti nama menjadi **Kedut — Kemana Duitku?** dan dipindahkan ke repo baru:
-> 👉 **[github.com/Anwitch/kedut-bot](https://github.com/Anwitch/kedut-bot)**
->
-> Bot Telegram baru tersedia di: [t.me/KemanaDuitku_Bot](https://t.me/KemanaDuitku_Bot)
-
----
-
-# ~~🤖 Montrac Bot~~ → Sekarang: [Kedut Bot](https://github.com/Anwitch/kedut-bot)
+# 🤖 Kedut Bot — Kemana Duitku?
 
 > **Bot Telegram untuk mencatat pengeluaran harian secara natural — cukup ketik atau foto struk, sisanya diurus AI.**
 
-Montrac Bot adalah bagian dari proyek [Montrac](https://github.com/andriewijaya) — money tracker yang dibangun live di depan kamera sebagai bagian dari seri konten *build in public*. Bot ini open source sebagai bentuk transparansi dan buat kalian yang pengen belajar atau fork buat project sendiri.
+Kedut adalah money tracker yang dibangun live di depan kamera sebagai bagian dari seri konten *build in public*. Bot ini open source sebagai bentuk transparansi dan buat kalian yang pengen belajar atau fork buat project sendiri.
+
+💬 Coba langsung: [t.me/KemanaDuitku_Bot](https://t.me/KemanaDuitku_Bot)
 
 ---
 
@@ -42,8 +35,8 @@ Montrac Bot adalah bagian dari proyek [Montrac](https://github.com/andriewijaya)
 ### 1. Clone repo
 
 ```bash
-git clone https://github.com/andriewijaya/montrac-bot.git
-cd montrac-bot
+git clone https://github.com/Anwitch/kedut-bot.git
+cd kedut-bot
 ```
 
 ### 2. Buat virtual environment
@@ -75,7 +68,7 @@ Lalu isi `.env` dengan credentials kamu:
 ```env
 TELEGRAM_BOT_TOKEN=   # dari @BotFather
 SUPABASE_URL=         # dari Supabase Dashboard → Project Settings → API
-SUPABASE_ANON_KEY=    # dari Supabase Dashboard → Project Settings → API
+SUPABASE_SERVICE_KEY= # dari Supabase Dashboard → Project Settings → API
 GEMINI_API_KEY=       # dari https://aistudio.google.com/app/apikey
 ```
 
@@ -139,7 +132,7 @@ create table expenses (
   updated_at  timestamptz default now()
 );
 
--- Registrasi user (whitelist)
+-- Registrasi user
 create table users (
   user_id       text primary key,
   username      text,
