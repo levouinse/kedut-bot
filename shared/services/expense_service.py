@@ -116,3 +116,16 @@ def update_expense_category(expense_id: str, user_id: str, category_name: str) -
         .execute()
     )
     return bool(result.data)
+
+
+def get_expense(expense_id: str, user_id: str) -> Optional[dict]:
+    """Fetch a single expense by id, joined with category name."""
+    db = get_supabase()
+    result = (
+        db.table("expenses")
+        .select("id, amount, note, expense_date, categories(name, icon)")
+        .eq("id", expense_id)
+        .eq("user_id", str(user_id))
+        .execute()
+    )
+    return result.data[0] if result.data else None

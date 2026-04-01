@@ -6,7 +6,7 @@ from shared.nlp.gemini_parser import (
     parse_expense,
     parse_expense_from_receipt_image,
 )
-from shared.services.expense_service import add_expense, delete_expense, update_expense_category
+from shared.services.expense_service import add_expense, delete_expense, update_expense_category, get_expense
 from shared.utils.formatters import format_currency, format_expense_confirmation
 from shared.middleware.auth import require_registered
 from shared.middleware.rate_limit import rate_limited
@@ -297,16 +297,21 @@ async def handle_set_cat_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("⚠️ Transaksi tidak ditemukan.", show_alert=True)
         return
 
-    # Find icon for the new category
-    icon = next((ic for name, ic in _CATEGORIES if name == new_category), "📌")
+    # Fetch updated expense to rebuild message accurately
+    expense = get_expense(expense_id, user_id)
+    if not expense:
+        await query.answer("⚠️ Gagal memuat data transaksi.", show_alert=True)
+        return
 
-    # Rebuild the confirmation message with the updated category
-    original_text = query.message.text or ""
-    lines = original_text.splitlines()
-    # Line index 1 is the category line (🏷️ ...)
-    if len(lines) >= 2:
-        lines[1] = f"🏷️ {new_category}"
-    new_text = "\n".join(lines) + f"\n✏️ _Kategori diubah ke {icon} {new_category}_"
+    # Rebuild the confirmation message from scratch
+    new_text = format_expense_confirmation(
+        amount=float(expense["amount"]),
+        category=expense["categories"]["name"],
+        note=expense["note"],
+    )
+    
+    icon = expense["categories"]["icon"]
+    new_text += f"\n\n✏️ _Kategori diubah ke {icon} {expense['categories']['name']}_"
 
     await query.edit_message_text(
         new_text,
