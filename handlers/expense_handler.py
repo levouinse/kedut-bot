@@ -6,22 +6,53 @@ from shared.nlp.gemini_parser import (
     parse_expense,
     parse_expense_from_receipt_image,
 )
-from shared.services.expense_service import add_expense, delete_expense
+from shared.services.expense_service import add_expense, delete_expense, update_expense_category
 from shared.utils.formatters import format_currency, format_expense_confirmation
 from shared.middleware.auth import require_registered
 from shared.middleware.rate_limit import rate_limited
 
 logger = logging.getLogger(__name__)
 
-# Callback data prefix for undo actions
+# Callback data prefixes
 _UNDO_PREFIX = "undo:"
+_EDIT_CAT_PREFIX = "edit_cat:"
+_SET_CAT_PREFIX = "set_cat:"
+
+# All available categories with emoji icons
+_CATEGORIES: list[tuple[str, str]] = [
+    ("Makan", "🍽"),
+    ("Transport", "🚗"),
+    ("Belanja", "🛒"),
+    ("Kesehatan", "💊"),
+    ("Hiburan", "🎮"),
+    ("Tagihan", "⚡"),
+    ("Pendidikan", "📚"),
+    ("Olahraga", "💪"),
+    ("Rumah", "🏠"),
+    ("Lainnya", "📌"),
+]
 
 
-def _undo_keyboard(expense_id: str) -> InlineKeyboardMarkup:
-    """Return an inline keyboard with a single Undo button."""
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("↩️ Batalkan", callback_data=f"{_UNDO_PREFIX}{expense_id}")]]
-    )
+def _action_keyboard(expense_id: str) -> InlineKeyboardMarkup:
+    """Return keyboard with Batalkan + Ganti Kategori buttons."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("↩️ Batalkan", callback_data=f"{_UNDO_PREFIX}{expense_id}"),
+        InlineKeyboardButton("✏️ Ganti Kategori", callback_data=f"{_EDIT_CAT_PREFIX}{expense_id}"),
+    ]])
+
+
+def _category_picker_keyboard(expense_id: str) -> InlineKeyboardMarkup:
+    """Return a 2-column inline keyboard of all categories."""
+    buttons = [
+        InlineKeyboardButton(
+            f"{icon} {name}",
+            callback_data=f"{_SET_CAT_PREFIX}{expense_id}:{name}",
+        )
+        for name, icon in _CATEGORIES
+    ]
+    # Pair buttons into rows of 2
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(rows)
 
 
 def _quota_error_message(e: GeminiQuotaExceeded) -> str:
@@ -76,8 +107,8 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             category=parsed["category"],
             note=parsed["note"],
         )
-        # Attach undo button only if we got a valid id back
-        markup = _undo_keyboard(expense_id) if expense_id else None
+        # Attach action buttons only if we got a valid id back
+        markup = _action_keyboard(expense_id) if expense_id else None
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
         logger.error(f"Error saving expense: {e}")
@@ -166,7 +197,7 @@ async def handle_receipt_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             category=item["category"],
             note=item["note"],
         )
-        markup = _undo_keyboard(expense_id) if expense_id else None
+        markup = _action_keyboard(expense_id) if expense_id else None
         await message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
 
     if failed:
@@ -207,3 +238,78 @@ async def handle_undo_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             (query.message.text or "") + "\n\n⚠️ Transaksi tidak ditemukan atau sudah dibatalkan.",
             parse_mode="Markdown",
         )
+
+
+async def handle_edit_cat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show category picker when user taps ✏️ Ganti Kategori."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.data or not query.data.startswith(_EDIT_CAT_PREFIX):
+        return
+
+    expense_id = query.data[len(_EDIT_CAT_PREFIX):]
+    note = ""
+    if query.message and query.message.text:
+        # Extract the note line (3rd line of the confirmation message)
+        lines = query.message.text.splitlines()
+        note = lines[2].replace("📝 ", "").strip() if len(lines) >= 3 else ""
+
+    prompt = f"✏️ Pilih kategori{f' untuk *{note}*' if note else ''}:"
+    await query.edit_message_text(
+        prompt,
+        parse_mode="Markdown",
+        reply_markup=_category_picker_keyboard(expense_id),
+    )
+
+
+async def handle_set_cat_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Save the selected category and update the confirmation message."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.data or not query.data.startswith(_SET_CAT_PREFIX):
+        return
+
+    user_id = str(update.effective_user.id)
+    # Payload format: set_cat:<expense_id>:<category_name>
+    payload = query.data[len(_SET_CAT_PREFIX):]
+    # Split only on first colon so category names with colons are safe
+    parts = payload.split(":", 1)
+    if len(parts) != 2:
+        await query.answer("⚠️ Format tidak valid.", show_alert=True)
+        return
+
+    expense_id, new_category = parts
+
+    try:
+        updated = update_expense_category(
+            expense_id=expense_id,
+            user_id=user_id,
+            category_name=new_category,
+        )
+    except Exception as e:
+        logger.error("Error updating category %s: %s", expense_id, e, exc_info=True)
+        await query.answer("⚠️ Gagal mengubah kategori. Coba lagi.", show_alert=True)
+        return
+
+    if not updated:
+        await query.answer("⚠️ Transaksi tidak ditemukan.", show_alert=True)
+        return
+
+    # Find icon for the new category
+    icon = next((ic for name, ic in _CATEGORIES if name == new_category), "📌")
+
+    # Rebuild the confirmation message with the updated category
+    original_text = query.message.text or ""
+    lines = original_text.splitlines()
+    # Line index 1 is the category line (🏷️ ...)
+    if len(lines) >= 2:
+        lines[1] = f"🏷️ {new_category}"
+    new_text = "\n".join(lines) + f"\n✏️ _Kategori diubah ke {icon} {new_category}_"
+
+    await query.edit_message_text(
+        new_text,
+        parse_mode="Markdown",
+        reply_markup=_action_keyboard(expense_id),
+    )

@@ -102,3 +102,17 @@ def get_expenses(user_id: str, start_date: date, end_date: date) -> list[dict]:
         .execute()
     )
     return result.data or []
+
+def update_expense_category(expense_id: str, user_id: str, category_name: str) -> bool:
+    category_id = _resolve_category_id(category_name)
+    if not category_id:
+        return False
+    db = get_supabase()
+    result = (
+        db.table('expenses')
+        .update({'category_id': category_id})
+        .eq('id', expense_id)
+        .eq('user_id', str(user_id))
+        .execute()
+    )
+    return bool(result.data)

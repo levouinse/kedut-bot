@@ -18,7 +18,7 @@ from telegram.request import HTTPXRequest
 
 from shared.config import settings
 from handlers.start_handler import cmd_start, cmd_help, MAIN_KEYBOARD
-from handlers.expense_handler import handle_expense, handle_receipt_photo, handle_undo_callback
+from handlers.expense_handler import handle_expense, handle_receipt_photo, handle_undo_callback, handle_edit_cat_callback, handle_set_cat_callback
 from handlers.summary_handler import handle_weekly_summary, handle_monthly_summary
 
 logging.basicConfig(
@@ -48,8 +48,10 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
 
-    # Inline button callbacks (undo, etc.)
+    # Inline button callbacks
     app.add_handler(CallbackQueryHandler(handle_undo_callback, pattern=r"^undo:"))
+    app.add_handler(CallbackQueryHandler(handle_edit_cat_callback, pattern=r"^edit_cat:"))
+    app.add_handler(CallbackQueryHandler(handle_set_cat_callback, pattern=r"^set_cat:"))
 
     # Menu button text handlers
     app.add_handler(
