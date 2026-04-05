@@ -88,13 +88,16 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if not parsed or parsed["amount"] <= 0:
         await update.message.reply_text(
-            "❓ Maaf, aku tidak bisa memahami pengeluaran itu.\n\n"
+            "❓ Maaf, aku tidak bisa memahami transaksi itu.\n\n"
             "Coba format seperti:\n"
             "`makan siang 35rb`\n"
-            "`bayar listrik 250000`",
+            "`bayar listrik 250000`\n"
+            "`gajian 5jt`",
             parse_mode="Markdown",
         )
         return
+
+    tx_type = parsed.get("type", "expense")
 
     try:
         row = add_expense(
@@ -103,6 +106,7 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             category_name=parsed["category"],
             note=parsed["note"],
             expense_date=parsed["date"],
+            transaction_type=tx_type,
         )
         expense_id = row.get("id")
         msg = format_expense_confirmation(
@@ -110,13 +114,15 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             category=parsed["category"],
             note=parsed["note"],
         )
-        # Attach action buttons only if we got a valid id back
+        # Prefix label sesuai tipe
+        type_label = "💸 *Pengeluaran dicatat!*" if tx_type == "expense" else "💰 *Pemasukan dicatat!*"
+        msg = f"{type_label}\n{msg}"
         markup = _action_keyboard(expense_id) if expense_id else None
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
-        logger.error(f"Error saving expense: {e}")
+        logger.error(f"Error saving transaction: {e}")
         await update.message.reply_text(
-            "⚠️ Gagal menyimpan pengeluaran. Coba lagi ya!"
+            "⚠️ Gagal menyimpan transaksi. Coba lagi ya!"
         )
 
 

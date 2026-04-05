@@ -12,7 +12,7 @@ def _build_summary(user_id: str, start: date, end: date, label: str) -> str:
     grand_total = 0.0
 
     for r in rows:
-        edate = r["expense_date"]
+        edate = r["transaction_date"]
         amount = float(r["amount"])
         cat = r.get("categories") or {}
         icon = cat.get("icon", "📌")

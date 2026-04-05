@@ -29,20 +29,28 @@ class GeminiQuotaExceeded(Exception):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
 
-SYSTEM_PROMPT = """Kamu adalah asisten keuangan. Tugasmu adalah mengekstrak informasi pengeluaran dari pesan pengguna.
+SYSTEM_PROMPT = """Kamu adalah asisten keuangan. Tugasmu adalah mengekstrak informasi transaksi keuangan dari pesan pengguna.
+Transaksi bisa berupa PENGELUARAN (expense) atau PEMASUKAN (income).
 
 Kembalikan HANYA JSON dengan format ini (tanpa teks tambahan):
 {
+  "type": "<expense atau income>",
   "amount": <angka float>,
-  "category": "<salah satu: Makan, Transport, Belanja, Kesehatan, Hiburan, Tagihan, Pendidikan, Olahraga, Rumah, Lainnya>",
+  "category": "<salah satu: Makan & Minum, Transport, Belanja, Kesehatan, Hiburan, Tagihan, Pendidikan, Olahraga, Rumah, Lainnya>",
   "note": "<deskripsi singkat>",
   "date": "<YYYY-MM-DD atau null jika hari ini>"
 }
 
+Aturan type:
+- Gunakan "income" jika pesan menyebut: gaji, terima, dapet, dapat, masuk, transfer masuk, freelance, honor, bonus, hasil jual, diterima, pendapatan, upah
+- Semua transaksi lain adalah "expense"
+- Untuk income, category boleh "Lainnya" jika tidak ada konteks yang cocok
+
 Contoh:
-- "makan siang 35rb" → {"amount": 35000, "category": "Makan", "note": "makan siang", "date": null}
-- "bayar listrik 250000" → {"amount": 250000, "category": "Tagihan", "note": "bayar listrik", "date": null}
-- "beli buku kemarin 75000" → {"amount": 75000, "category": "Pendidikan", "note": "beli buku", "date": "<kemarin>"}
+- "makan siang 35rb" → {"type": "expense", "amount": 35000, "category": "Makan & Minum", "note": "makan siang", "date": null}
+- "bayar listrik 250000" → {"type": "expense", "amount": 250000, "category": "Tagihan", "note": "bayar listrik", "date": null}
+- "gajian 5jt" → {"type": "income", "amount": 5000000, "category": "Lainnya", "note": "gaji", "date": null}
+- "dapet transfer 500rb dari client" → {"type": "income", "amount": 500000, "category": "Lainnya", "note": "transfer dari client", "date": null}
 
 Aturan angka: 35rb=35000, 1.5jt=1500000, 1jt=1000000"""
 
@@ -74,13 +82,21 @@ Aturan:
 """
 
 
+# Income keywords — used to detect type before categorising
+_INCOME_KEYWORDS = [
+    "gaji", "gajian", "slip gaji", "terima", "dapet", "dapat", "masuk",
+    "transfer masuk", "diterima", "pendapatan", "pemasukan", "honor",
+    "bonus", "freelance", "hasil jual", "upah", "komisi", "dividen",
+    "refund", "kembalian transfer",
+]
+
 _CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
     (
         "Tagihan",
         ["listrik", "air", "pln", "wifi", "internet", "token", "pulsa", "bpjs", "cicilan", "iuran"],
     ),
     (
-        "Makan",
+        "Makan & Minum",
         [
             "makan", "sarapan", "siang", "malam", "nasi", "kopi", "ayam", "bakso",
             "minum", "resto", "restoran", "warung", "cafe", "kafe", "snack", "jajan",
@@ -138,6 +154,14 @@ _RELATIVE_DATES: list[tuple[list[str], int]] = [
     (["3 hari lalu", "tiga hari lalu"], -3),
     (["minggu lalu", "seminggu lalu"], -7),
 ]
+
+
+def _guess_type(text: str) -> str:
+    """Return 'income' if text contains income keywords, else 'expense'."""
+    lowered = text.lower()
+    if any(kw in lowered for kw in _INCOME_KEYWORDS):
+        return "income"
+    return "expense"
 
 
 def _guess_category(note: str) -> str:
@@ -297,14 +321,16 @@ def _parse_expense_local(text: str) -> dict | None:
         for kw in keywords:
             note = re.sub(re.escape(kw), "", note, flags=re.IGNORECASE)
 
+    tx_type = _guess_type(text)
     note = _clean_note(note)
     if not note:
-        note = "Pengeluaran"
+        note = "Pemasukan" if tx_type == "income" else "Pengeluaran"
 
-    category = _guess_category(note)
+    category = _guess_category(note) if tx_type == "expense" else "Lainnya"
     expense_date = _parse_relative_date(text)
 
     return {
+        "type": tx_type,
         "amount": float(amount),
         "category": category,
         "note": note,
@@ -343,39 +369,43 @@ def _is_quota_error(exc: Exception) -> bool:
     return False
 
 
-def _is_expense_input(text: str) -> bool:
+def _is_transaction_input(text: str) -> bool:
     """
-    Quick guard: return False for obvious non-expense messages so we don't
+    Quick guard: return False for obvious non-transaction messages so we don't
     waste a Gemini call or return a false positive.
     """
-    NON_EXPENSE_PATTERNS = [
+    NON_TRANSACTION_PATTERNS = [
         r"^\s*(hapus|cancel|batal|keluar|exit|stop|menu|help|bantuan|\?)\s*$",
         r"^\s*(hi|halo|hei|hey|hello|ok|oke|iya|ya|tidak|nggak|ngga)\s*$",
     ]
     lowered = text.strip().lower()
-    for pattern in NON_EXPENSE_PATTERNS:
+    for pattern in NON_TRANSACTION_PATTERNS:
         if re.match(pattern, lowered, re.IGNORECASE):
             return False
     return True
 
 
+# Keep old name as alias for backward compatibility
+_is_expense_input = _is_transaction_input
+
+
 def parse_expense(text: str) -> dict | None:
     """
-    Parse natural language expense from user text.
-    Returns dict with amount, category, note, date — or None on failure.
+    Parse natural language transaction (expense OR income) from user text.
+    Returns dict with type, amount, category, note, date — or None on failure.
 
     Flow:
-      1. Guard against obvious non-expense messages.
+      1. Guard against obvious non-transaction messages.
       2. Local parse for common patterns (fast, works offline).
          Only returns early if a suffixed amount (rb/jt/k) is found — unambiguous.
       3. Gemini parse for complex or ambiguous inputs.
       4. Final fallback to local parse if Gemini fails.
     """
-    if not _is_expense_input(text):
-        logger.info("Non-expense input detected, skipping parse: %s", text)
+    if not _is_transaction_input(text):
+        logger.info("Non-transaction input detected, skipping parse: %s", text)
         return None
 
-    # 1) Try local parse — only trust it immediately if there's an explicit suffix
+    # 1) Try local parse — only trust it if there's an explicit suffix
     amount, token = _parse_amount_local(text)
     has_suffix = token is not None and bool(
         re.search(r"(?i)(rb|ribu|jt|juta|k)\b", token)
@@ -385,7 +415,8 @@ def parse_expense(text: str) -> dict | None:
         local = _parse_expense_local(text)
         if local and local.get("amount", 0) > 0:
             logger.info(
-                "Local parse (suffixed) success: amount=%s category=%s note=%s",
+                "Local parse (suffixed) success: type=%s amount=%s category=%s note=%s",
+                local.get("type"),
                 local["amount"],
                 local["category"],
                 local["note"],
@@ -408,18 +439,23 @@ def parse_expense(text: str) -> dict | None:
         data = json.loads(raw_json)
 
         # Parse date — Gemini may return a relative label or ISO string
-        expense_date = _parse_relative_date(text)  # prefer local date parse
+        tx_date = _parse_relative_date(text)  # prefer local date parse
         if data.get("date") and str(data["date"]).lower() not in ("null", "none", ""):
             try:
-                expense_date = date.fromisoformat(str(data["date"]))
+                tx_date = date.fromisoformat(str(data["date"]))
             except ValueError:
-                expense_date = _parse_relative_date(text)
+                tx_date = _parse_relative_date(text)
+
+        # Validate type field from Gemini; fall back to local detection
+        gemini_type = str(data.get("type", "")).lower()
+        tx_type = gemini_type if gemini_type in ("expense", "income") else _guess_type(text)
 
         parsed = {
+            "type": tx_type,
             "amount": _coerce_amount(data.get("amount", 0)),
             "category": str(data.get("category", "Lainnya")),
             "note": str(data.get("note", "")),
-            "date": expense_date,
+            "date": tx_date,
         }
 
         if parsed["amount"] <= 0:
