@@ -33,6 +33,14 @@ _CATEGORIES: list[tuple[str, str]] = [
     ("Lainnya",       "📌"),
 ]
 
+_INCOME_CATEGORIES: list[tuple[str, str]] = [
+    ("Gaji",      "💼"),
+    ("Freelance",  "💻"),
+    ("Investasi",  "📈"),
+    ("Transfer",   "🔄"),
+    ("Lainnya",    "💰"),
+]
+
 
 def _action_keyboard(expense_id: str) -> InlineKeyboardMarkup:
     """Return keyboard with Batalkan + Ganti Kategori buttons."""
@@ -42,19 +50,19 @@ def _action_keyboard(expense_id: str) -> InlineKeyboardMarkup:
     ]])
 
 
-def _category_picker_keyboard(expense_id: str) -> InlineKeyboardMarkup:
-    """Return a 2-column inline keyboard of all categories."""
+def _category_picker_keyboard(expense_id: str, categories: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Return a 2-column inline keyboard of provided categories."""
     buttons = [
         InlineKeyboardButton(
             f"{icon} {name}",
             callback_data=f"{_SET_CAT_PREFIX}{expense_id}:{name}",
         )
-        for name, icon in _CATEGORIES
+        for name, icon in categories
     ]
-    # Pair buttons into rows of 2, except Lainnya gets its own row
-    rows = [buttons[i:i + 2] for i in range(0, len(buttons) - 1, 2)]
+    # Pair buttons into rows of 2, except if odd number last item gets its own row
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons) - (1 if len(buttons) % 2 else 0), 2)]
     if len(buttons) % 2 == 1:
-        rows.append([buttons[-1]])  # last item alone on last row
+        rows.append([buttons[-1]])
     return InlineKeyboardMarkup(rows)
 
 
@@ -258,6 +266,13 @@ async def handle_edit_cat_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     expense_id = query.data[len(_EDIT_CAT_PREFIX):]
+    user_id = str(update.effective_user.id)
+    
+    # Fetch transaction to know if it's income or expense
+    tx = get_expense(expense_id, user_id)
+    tx_type = tx.get("type", "expense") if tx else "expense"
+    categories = _INCOME_CATEGORIES if tx_type == "income" else _CATEGORIES
+
     note = ""
     if query.message and query.message.text:
         # Extract the note line (3rd line of the confirmation message)
@@ -268,7 +283,7 @@ async def handle_edit_cat_callback(update: Update, context: ContextTypes.DEFAULT
     await query.edit_message_text(
         prompt,
         parse_mode="Markdown",
-        reply_markup=_category_picker_keyboard(expense_id),
+        reply_markup=_category_picker_keyboard(expense_id, categories),
     )
 
 
