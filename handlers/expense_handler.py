@@ -165,6 +165,11 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
+    MAX_ITEMS = 10
+    if len(items) > MAX_ITEMS:
+        items = items[:MAX_ITEMS]
+        await update.message.reply_text(f"Sistemnya maksimal hanya memuat {MAX_ITEMS} transaksi sekaligus.")
+
     await _save_multiple_items_and_reply(items, update.message, update, user_id, is_photo=False)
 
 
@@ -204,6 +209,11 @@ async def handle_receipt_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode="Markdown",
         )
         return
+
+    MAX_ITEMS = 10
+    if len(items) > MAX_ITEMS:
+        items = items[:MAX_ITEMS]
+        await message.reply_text(f"Sistemnya maksimal hanya memuat {MAX_ITEMS} transaksi sekaligus.")
 
     await _save_multiple_items_and_reply(items, message, update, user_id, is_photo=True)
 
