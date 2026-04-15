@@ -104,24 +104,33 @@ async def _save_multiple_items_and_reply(items: list[dict], message, update: Upd
         await message.reply_text("⚠️ Gagal menyimpan transaksi. Coba lagi ya!")
         return
 
-    # Summary header
+    # Summary header logic
     valid_items = [(item, eid) for item, eid in saved if item["amount"] > 0]
     total_income = sum(item["amount"] for item, _ in valid_items if item.get("type", "expense") == "income")
     total_expense = sum(item["amount"] for item, _ in valid_items if item.get("type", "expense") == "expense")
     ambiguous_count = sum(1 for item, _ in saved if item["amount"] <= 0)
 
-    emoji = "📷 *Struk berhasil dibaca!*" if is_photo else "✨ *Catatan berhasil!*"
-    header_lines = [f"{emoji} ({len(saved)} item)\n"]
-    if ambiguous_count:
-        header_lines.append(f"⚠️ _{ambiguous_count} item harga tidak terbaca (tandai ?)_\n")
-    if total_income > 0:
-        header_lines.append(f"🟢 *Total Pemasukan: Rp {total_income:,.0f}*")
-    if total_expense > 0:
-        header_lines.append(f"🔴 *Total Pengeluaran: Rp {total_expense:,.0f}*")
+    # Determine if we should show the summary header
+    # We skip it if there's only 1 valid item, no failures, no ambiguity, and it's not from a photo.
+    show_summary = len(saved) > 1 or failed > 0 or ambiguous_count > 0 or is_photo
+
+    if show_summary:
+        emoji = "📷 *Struk berhasil dibaca!*" if is_photo else "✨ *Catatan berhasil!*"
+        header_lines = [f"{emoji} ({len(saved)} item)\n"]
+        if ambiguous_count:
+            header_lines.append(f"⚠️ _{ambiguous_count} item harga tidak terbaca (tandai ?)_\n")
+        if total_income > 0:
+            header_lines.append(f"🟢 *Total Pemasukan: Rp {total_income:,.0f}*")
+        if total_expense > 0:
+            header_lines.append(f"🔴 *Total Pengeluaran: Rp {total_expense:,.0f}*")
         
-    await message.reply_text("\n".join(header_lines), parse_mode="Markdown")
+        await message.reply_text("\n".join(header_lines), parse_mode="Markdown")
 
     for item, expense_id in saved:
+        if item["amount"] <= 0 and not is_photo:
+            # Skip repeating errors for direct text if handled by ambiguous count above
+            continue
+            
         msg = format_expense_confirmation(
             amount=item["amount"],
             category=item["category"],
