@@ -23,33 +23,24 @@ def _get_category_cache() -> dict[str, str]:
 
     return _category_cache
 
-_profile_id_cache: dict[str, str] = {}
-
 def _resolve_profile_id(telegram_id: str) -> str:
-    """Resolve Telegram ID to the internal Profile UUID. Find or Create."""
-    global _profile_id_cache
-    
-    # 1. Check cache
-    if telegram_id in _profile_id_cache:
-        return _profile_id_cache[telegram_id]
-
-    # 2. Check DB
+    """
+    Resolve Telegram ID to the internal Profile UUID. Find or Create.
+    Cache removed to prevent stale IDs after account linking/merging.
+    """
     db = get_supabase()
     res = db.table("profiles").select("id").eq("telegram_id", str(telegram_id)).execute()
     
     if res.data:
-        profile_id = res.data[0]["id"]
-    else:
-        # 3. Create if not exists (Auto-registration via Telegram)
-        new_prof = db.table("profiles").insert({"telegram_id": str(telegram_id)}).execute()
-        if not new_prof.data:
-            # Fallback to prevent crash if table doesn't exist yet (migration pending)
-            return str(telegram_id)
-        profile_id = new_prof.data[0]["id"]
+        return res.data[0]["id"]
     
-    # Update cache
-    _profile_id_cache[telegram_id] = profile_id
-    return profile_id
+    # Create if not exists (Auto-registration via Telegram)
+    new_prof = db.table("profiles").insert({"telegram_id": str(telegram_id)}).execute()
+    if not new_prof.data:
+        # Fallback to prevent crash if table doesn't exist yet (migration pending)
+        return str(telegram_id)
+    
+    return new_prof.data[0]["id"]
 
 def _resolve_category_id(category_name: str) -> Optional[str]:
     """Look up category id by name (case-insensitive). Falls back to 'Lainnya'."""
